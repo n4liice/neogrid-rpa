@@ -1,0 +1,16 @@
+# Credenciais — NUNCA subir
+.env
+
+# Logs e downloads
+*.log
+EDI_PDFs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Debug screenshots
+debug_*.png
