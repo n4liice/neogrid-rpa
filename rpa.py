@@ -23,6 +23,36 @@ URL_EDI    = "https://edi.neogrid.com/mercador/summaryFrame.jsp"
 log = logging.getLogger(__name__)
 
 
+# ── helpers ──────────────────────────────────────────────────
+
+def js_click(driver, element):
+    """Clique via JavaScript — ignora qualquer overlay."""
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
+    driver.execute_script("arguments[0].click();", element)
+
+
+def dismiss_overlays(driver):
+    """Remove todos os overlays conhecidos via JS para liberar cliques."""
+    driver.execute_script("""
+        const selectors = [
+            '#walk-wrapper',
+            '#CybotCookiebotDialog',
+            '.cookiebot-overlay',
+            '[id*="cookiebot"]',
+            '[class*="cookie-banner"]',
+            '[class*="overlay"]',
+            '[class*="modal-backdrop"]',
+        ];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+        // Remove overflow:hidden do body que overlays costumam aplicar
+        document.body.style.overflow = 'auto';
+    """)
+
+
+# ── driver ───────────────────────────────────────────────────
+
 def criar_driver(headless: bool = True, pasta_download: str = None):
     pasta_download = pasta_download or tempfile.mkdtemp()
     opcoes = Options()
@@ -31,9 +61,12 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
         opcoes.add_argument("--no-sandbox")
         opcoes.add_argument("--disable-dev-shm-usage")
         opcoes.add_argument("--disable-gpu")
-    opcoes.add_argument("--start-maximized")
+        opcoes.add_argument("--window-size=1920,1080")
+    else:
+        opcoes.add_argument("--start-maximized")
     opcoes.add_argument("--disable-notifications")
     opcoes.add_argument("--disable-popup-blocking")
+    opcoes.add_argument("--disable-blink-features=AutomationControlled")
     opcoes.add_experimental_option("prefs", {
         "download.default_directory": pasta_download,
         "download.prompt_for_download": False,
@@ -45,35 +78,44 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
     return driver, pasta_download
 
 
+# ── passos ───────────────────────────────────────────────────
+
 def fazer_login(driver):
     log.info("Acessando o portal Neogrid...")
     driver.get(URL_PORTAL)
     wait = WebDriverWait(driver, 30)
 
+    # Preenche e-mail
     campo_usuario = wait.until(EC.presence_of_element_located(
         (By.CSS_SELECTOR, "input[type='email'], input[type='text']")
     ))
     campo_usuario.clear()
     campo_usuario.send_keys(USUARIO)
 
-    botao_proximo = wait.until(EC.element_to_be_clickable(
+    # Remove overlays e clica em Continue via JS
+    dismiss_overlays(driver)
+    botao_proximo = wait.until(EC.presence_of_element_located(
         (By.CSS_SELECTOR, "button[type='submit'], button[type='button'], button")
     ))
-    botao_proximo.click()
-    log.info(f"Avançou para senha.")
+    js_click(driver, botao_proximo)
+    log.info("Avançou para senha.")
 
+    # Preenche senha
     campo_senha = wait.until(EC.visibility_of_element_located(
         (By.CSS_SELECTOR, "input[type='password']")
     ))
     campo_senha.clear()
     campo_senha.send_keys(SENHA)
 
-    botao_login = wait.until(EC.element_to_be_clickable(
+    # Clica em Entrar via JS
+    dismiss_overlays(driver)
+    botao_login = wait.until(EC.presence_of_element_located(
         (By.CSS_SELECTOR, "button[type='submit'], input[type='submit']")
     ))
-    botao_login.click()
+    js_click(driver, botao_login)
     log.info("Login submetido...")
 
+    # Aguarda portal
     wait.until(EC.presence_of_element_located(
         (By.XPATH, "//*[contains(text(), 'EDI Logístico') or contains(text(), 'EDI Logistico')]")
     ))
@@ -86,34 +128,30 @@ def fazer_login(driver):
         driver.close()
     driver.switch_to.window(aba_portal)
 
-    # Aceita cookies se aparecer
+    # Remove overlays de cookie/modal antes de continuar
+    dismiss_overlays(driver)
+    time.sleep(1)
+
+    # Tenta clicar em "Concordo" se ainda estiver visível
     try:
         botao_concordo = WebDriverWait(driver, 4).until(
-            EC.element_to_be_clickable(
+            EC.presence_of_element_located(
                 (By.XPATH, "//button[contains(normalize-space(.),'Concordo')]")
             )
         )
-        botao_concordo.click()
+        js_click(driver, botao_concordo)
         log.info("Cookies aceitos.")
     except Exception:
         pass
 
-    # Fecha modal se aparecer
-    try:
-        botao_fechar = WebDriverWait(driver, 2).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[aria-label='Close'], .modal button.close, button[class*='close']")
-            )
-        )
-        botao_fechar.click()
-    except Exception:
-        pass
+    dismiss_overlays(driver)
 
 
 def acessar_edi_logistico(driver):
     wait = WebDriverWait(driver, 15)
     log.info("Clicando em 'Acessar' no EDI Logístico...")
-    botao_acessar = wait.until(EC.element_to_be_clickable(
+    dismiss_overlays(driver)
+    botao_acessar = wait.until(EC.presence_of_element_located(
         (By.XPATH, "//tr[td[contains(normalize-space(.),'EDI Logístico')] or td[contains(normalize-space(.),'EDI Logistico')]]"
                    "//button[contains(normalize-space(.),'Acessar')] | "
                    "//*[contains(normalize-space(.),'EDI Logístico') or contains(normalize-space(.),'EDI Logistico')]"
@@ -121,7 +159,8 @@ def acessar_edi_logistico(driver):
                    "//button[contains(normalize-space(.),'Acessar')] | "
                    "//button[contains(normalize-space(.),'Acessar')]")
     ))
-    botao_acessar.click()
+    js_click(driver, botao_acessar)
+    log.info("Clicou em 'Acessar'.")
 
 
 def acessar_webedi(driver):
@@ -155,32 +194,38 @@ def acessar_caixa_entrada(driver, data: str):
     log.info("Acessando Caixa de Entrada...")
 
     driver.switch_to.default_content()
+    dismiss_overlays(driver)
 
+    # Remove walk-wrapper especificamente
     try:
-        overlay = driver.find_element(By.ID, "walk-wrapper")
-        if overlay.is_displayed():
-            driver.execute_script("arguments[0].style.display='none';", overlay)
+        driver.execute_script("""
+            const el = document.getElementById('walk-wrapper');
+            if (el) el.remove();
+        """)
     except Exception:
         pass
 
     link_caixa = wait.until(EC.presence_of_element_located(
         (By.XPATH, "//a[contains(text(),'Caixa Entrada') or contains(@href,'goInbox')]")
     ))
-    driver.execute_script("arguments[0].click();", link_caixa)
+    js_click(driver, link_caixa)
     log.info("Clicou em 'Caixa Entrada'.")
 
     mudar_para_frame_transacao(driver)
 
+    # Abre filtro se fechado
     try:
         link_filtro = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable(
+            EC.presence_of_element_located(
                 (By.XPATH, "//*[contains(text(),'filtro está fechado') or contains(text(),'exibi-lo')]")
             )
         )
-        link_filtro.click()
+        js_click(driver, link_filtro)
+        log.info("Filtro aberto.")
     except Exception:
         pass
 
+    # Preenche data
     log.info(f"Filtrando por data: {data}")
     campo_data = wait.until(EC.presence_of_element_located(
         (By.XPATH, "//label[contains(text(),'Data Criação Inicial') or contains(text(),'Data Cria')]"
@@ -190,22 +235,19 @@ def acessar_caixa_entrada(driver, data: str):
     campo_data.clear()
     campo_data.send_keys(data)
 
+    # Pesquisar
     botao_pesquisar = wait.until(EC.presence_of_element_located(
         (By.XPATH, "//button[contains(normalize-space(.),'Pesquisar')] | "
                    "//input[@value='Pesquisar' or @value='pesquisar' or @title='Pesquisar'] | "
                    "//input[@type='submit'] | //input[@type='image'] | "
                    "//a[contains(normalize-space(.),'Pesquisar')]")
     ))
-    try:
-        botao_pesquisar.click()
-    except Exception:
-        driver.execute_script("arguments[0].click();", botao_pesquisar)
+    js_click(driver, botao_pesquisar)
     log.info("Pesquisa disparada.")
     time.sleep(2)
 
 
 def coletar_nao_lidos(driver) -> list:
-    """Lê a tabela e retorna lista de dicts com documentos não lidos."""
     mudar_para_frame_transacao(driver)
     time.sleep(1)
 
@@ -237,12 +279,11 @@ def coletar_nao_lidos(driver) -> list:
         except Exception as e:
             log.warning(f"Erro na linha {i}: {e}")
 
-    log.info(f"Não lidos encontrados: {len(nao_lidos)}")
+    log.info(f"Não lidos: {len(nao_lidos)}")
     return nao_lidos
 
 
 def baixar_pdf_base64(driver, numero_doc: str, pasta_download: str) -> str | None:
-    """Clica no botão PDF do documento e retorna o conteúdo em base64."""
     try:
         mudar_para_frame_transacao(driver)
 
@@ -257,26 +298,25 @@ def baixar_pdf_base64(driver, numero_doc: str, pasta_download: str) -> str | Non
         )
 
         arquivos_antes = set(os.listdir(pasta_download))
-        botao_pdf.click()
+        js_click(driver, botao_pdf)
         log.info(f"Clicou no PDF: {numero_doc}")
 
-        # Aguarda novo arquivo aparecer
+        # Aguarda novo arquivo
         pdf_path = None
         inicio = time.time()
         while time.time() - inicio < 30:
             arquivos_depois = set(os.listdir(pasta_download))
-            novos = arquivos_depois - arquivos_antes
-            pdfs = [f for f in novos if f.endswith(".pdf")]
+            pdfs = [f for f in (arquivos_depois - arquivos_antes) if f.endswith(".pdf")]
             if pdfs:
                 pdf_path = os.path.join(pasta_download, pdfs[0])
                 break
             time.sleep(0.5)
 
         if not pdf_path:
-            log.warning(f"PDF não encontrado para: {numero_doc}")
+            log.warning(f"PDF não encontrado: {numero_doc}")
             return None
 
-        # Aguarda download completar (sem .crdownload)
+        # Aguarda download completar
         inicio = time.time()
         while time.time() - inicio < 30:
             if not any(f.endswith(".crdownload") for f in os.listdir(pasta_download)):
@@ -287,7 +327,7 @@ def baixar_pdf_base64(driver, numero_doc: str, pasta_download: str) -> str | Non
             conteudo = base64.b64encode(f.read()).decode("utf-8")
 
         os.remove(pdf_path)
-        log.info(f"PDF capturado e convertido para base64: {numero_doc}")
+        log.info(f"PDF em base64: {numero_doc}")
         return conteudo
 
     except Exception as e:
@@ -295,27 +335,9 @@ def baixar_pdf_base64(driver, numero_doc: str, pasta_download: str) -> str | Non
         return None
 
 
+# ── orquestrador ─────────────────────────────────────────────
+
 def executar_rpa(headless: bool = True) -> dict:
-    """
-    Executa o RPA completo e retorna dicionário com resultado.
-    Retorno:
-        {
-            "sucesso": bool,
-            "data_verificacao": str,
-            "total_nao_lidos": int,
-            "documentos": [
-                {
-                    "numero": str,
-                    "remetente": str,
-                    "data_criacao": str,
-                    "status": str,
-                    "pdf_base64": str | None,
-                    "pdf_nome": str
-                }
-            ],
-            "erro": str | None
-        }
-    """
     data_hoje = datetime.now().strftime("%d/%m/%Y")
     driver, pasta_download = criar_driver(headless=headless)
 
@@ -330,14 +352,13 @@ def executar_rpa(headless: bool = True) -> dict:
         documentos = []
         for item in nao_lidos:
             pdf_b64 = baixar_pdf_base64(driver, item["numero"], pasta_download)
-            nome_arquivo = item["numero"].replace(".", "_") + ".pdf"
             documentos.append({
                 "numero": item["numero"],
                 "remetente": item["remetente"],
                 "data_criacao": item["data_criacao"],
                 "status": item["status"],
                 "pdf_base64": pdf_b64,
-                "pdf_nome": nome_arquivo,
+                "pdf_nome": item["numero"].replace(".", "_") + ".pdf",
             })
 
         return {
