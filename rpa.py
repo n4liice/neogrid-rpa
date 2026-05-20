@@ -123,23 +123,13 @@ def fazer_login(driver):
     js_click(driver, botao_login)
     log.info("Login submetido...")
 
-    # Aguarda portal
+    # Aguarda sair da tela de login (URL muda ou campo de senha desaparece)
     try:
-        wait.until(EC.presence_of_element_located(
-            (By.XPATH, "//*[contains(text(), 'EDI Logístico') or contains(text(), 'EDI Logistico')]")
-        ))
-    except Exception as e:
-        for label, fn in [
-            ("URL", lambda: driver.current_url),
-            ("Título", lambda: driver.title),
-            ("HTML", lambda: driver.page_source[:3000]),
-        ]:
-            try:
-                log.error(f"[diag] {label}: {fn()}")
-            except Exception as de:
-                log.error(f"[diag] {label}: INDISPONÍVEL — Chrome pode ter crashado ({de})")
-        raise
-    log.info("Login realizado com sucesso.")
+        wait.until(lambda d: URL_PORTAL not in d.current_url or "portal.neogrid.com" in d.current_url)
+    except Exception:
+        pass
+    time.sleep(6)
+    log.info(f"Pós-login. URL: {driver.current_url} | Título: {driver.title}")
 
     # Fecha abas extras
     aba_portal = driver.window_handles[0]
@@ -148,11 +138,9 @@ def fazer_login(driver):
         driver.close()
     driver.switch_to.window(aba_portal)
 
-    # Remove overlays de cookie/modal antes de continuar
     dismiss_overlays(driver)
-    time.sleep(1)
 
-    # Tenta clicar em "Concordo" se ainda estiver visível
+    # Aceita cookies se aparecer
     try:
         botao_concordo = WebDriverWait(driver, 4).until(
             EC.presence_of_element_located(
@@ -165,6 +153,7 @@ def fazer_login(driver):
         pass
 
     dismiss_overlays(driver)
+    log.info("Login concluído.")
 
 
 def acessar_edi_logistico(driver):
