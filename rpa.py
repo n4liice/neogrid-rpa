@@ -75,8 +75,6 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
     opcoes.add_argument("--disable-default-apps")
     opcoes.add_argument("--disable-sync")
     opcoes.add_argument("--no-first-run")
-    opcoes.add_argument("--disable-images")
-    opcoes.add_argument("--blink-settings=imagesEnabled=false")
     opcoes.add_experimental_option("prefs", {
         "download.default_directory": pasta_download,
         "download.prompt_for_download": False,
@@ -131,9 +129,15 @@ def fazer_login(driver):
             (By.XPATH, "//*[contains(text(), 'EDI Logístico') or contains(text(), 'EDI Logistico')]")
         ))
     except Exception as e:
-        log.error(f"Timeout aguardando portal. URL atual: {driver.current_url}")
-        log.error(f"Título da página: {driver.title}")
-        log.error(f"HTML (primeiros 2000 chars):\n{driver.page_source[:2000]}")
+        for label, fn in [
+            ("URL", lambda: driver.current_url),
+            ("Título", lambda: driver.title),
+            ("HTML", lambda: driver.page_source[:3000]),
+        ]:
+            try:
+                log.error(f"[diag] {label}: {fn()}")
+            except Exception as de:
+                log.error(f"[diag] {label}: INDISPONÍVEL — Chrome pode ter crashado ({de})")
         raise
     log.info("Login realizado com sucesso.")
 
