@@ -68,6 +68,15 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
     opcoes.add_argument("--disable-notifications")
     opcoes.add_argument("--disable-popup-blocking")
     opcoes.add_argument("--disable-blink-features=AutomationControlled")
+    # Reduz consumo de memória no container
+    opcoes.add_argument("--disable-extensions")
+    opcoes.add_argument("--disable-plugins-discovery")
+    opcoes.add_argument("--disable-background-networking")
+    opcoes.add_argument("--disable-default-apps")
+    opcoes.add_argument("--disable-sync")
+    opcoes.add_argument("--no-first-run")
+    opcoes.add_argument("--disable-images")
+    opcoes.add_argument("--blink-settings=imagesEnabled=false")
     opcoes.add_experimental_option("prefs", {
         "download.default_directory": pasta_download,
         "download.prompt_for_download": False,
@@ -84,7 +93,7 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
 def fazer_login(driver):
     log.info("Acessando o portal Neogrid...")
     driver.get(URL_PORTAL)
-    wait = WebDriverWait(driver, 30)
+    wait = WebDriverWait(driver, 60)
 
     # Preenche e-mail
     campo_usuario = wait.until(EC.presence_of_element_located(
