@@ -63,8 +63,6 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
         opcoes.add_argument("--disable-dev-shm-usage")
         opcoes.add_argument("--disable-gpu")
         opcoes.add_argument("--window-size=1920,1080")
-        opcoes.add_argument("--single-process")
-        opcoes.add_argument("--no-zygote")
     else:
         opcoes.add_argument("--start-maximized")
     opcoes.add_argument("--disable-notifications")
