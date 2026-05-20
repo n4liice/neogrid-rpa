@@ -126,9 +126,15 @@ def fazer_login(driver):
     log.info("Login submetido...")
 
     # Aguarda portal
-    wait.until(EC.presence_of_element_located(
-        (By.XPATH, "//*[contains(text(), 'EDI Logístico') or contains(text(), 'EDI Logistico')]")
-    ))
+    try:
+        wait.until(EC.presence_of_element_located(
+            (By.XPATH, "//*[contains(text(), 'EDI Logístico') or contains(text(), 'EDI Logistico')]")
+        ))
+    except Exception as e:
+        log.error(f"Timeout aguardando portal. URL atual: {driver.current_url}")
+        log.error(f"Título da página: {driver.title}")
+        log.error(f"HTML (primeiros 2000 chars):\n{driver.page_source[:2000]}")
+        raise
     log.info("Login realizado com sucesso.")
 
     # Fecha abas extras
