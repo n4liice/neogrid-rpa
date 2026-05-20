@@ -59,9 +59,12 @@ def criar_driver(headless: bool = True, pasta_download: str = None):
     if headless:
         opcoes.add_argument("--headless=new")
         opcoes.add_argument("--no-sandbox")
+        opcoes.add_argument("--disable-setuid-sandbox")
         opcoes.add_argument("--disable-dev-shm-usage")
         opcoes.add_argument("--disable-gpu")
         opcoes.add_argument("--window-size=1920,1080")
+        opcoes.add_argument("--single-process")
+        opcoes.add_argument("--no-zygote")
     else:
         opcoes.add_argument("--start-maximized")
     opcoes.add_argument("--disable-notifications")
@@ -370,17 +373,23 @@ def executar_rpa(headless: bool = True) -> dict:
         }
 
     except Exception as e:
-        log.error(f"Erro no RPA: {e}", exc_info=True)
+        import traceback
+        tb = traceback.format_exc()
+        log.error(f"Erro no RPA: {e}\n{tb}")
         return {
             "sucesso": False,
             "data_verificacao": data_hoje,
             "total_nao_lidos": 0,
             "documentos": [],
             "erro": str(e),
+            "traceback": tb,
         }
 
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
         try:
             import shutil
             shutil.rmtree(pasta_download, ignore_errors=True)

@@ -55,7 +55,10 @@ def verificar():
     if not resultado["sucesso"]:
         raise HTTPException(
             status_code=500,
-            detail=f"Falha na execução do RPA: {resultado['erro']}"
+            detail={
+                "erro": resultado["erro"],
+                "traceback": resultado.get("traceback"),
+            }
         )
 
     return JSONResponse(content=resultado)
