@@ -91,6 +91,13 @@ async def run_rpa(email: str, password: str) -> dict:
             log.info("[4/8] Aguardando link 'Acessar antigo EDI'...")
             await edi_page.wait_for_selector("text=Acessar antigo EDI", timeout=15000)
 
+            # Remove overlay do tutorial react-joyride se estiver bloqueando
+            await edi_page.evaluate("""
+                const portal = document.getElementById('react-joyride-portal');
+                if (portal) portal.remove();
+                document.querySelectorAll('[data-test-id="overlay"]').forEach(el => el.remove());
+            """)
+
             async with context.expect_page() as old_edi_info:
                 await edi_page.click("text=Acessar antigo EDI")
 
