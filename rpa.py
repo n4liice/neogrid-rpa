@@ -1,9 +1,12 @@
 import asyncio
+import logging
 import os
 import base64
 from datetime import datetime
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+
+log = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = Path("/app/downloads")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -13,6 +16,9 @@ async def run_rpa(email: str, password: str) -> dict:
     today = datetime.now().strftime("%d/%m/%Y")
     downloaded_files = []
     errors = []
+
+    log.info("=== Iniciando RPA Neogrid EDI ===")
+    log.info(f"Data: {today} | Usuário: {email}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -31,140 +37,115 @@ async def run_rpa(email: str, password: str) -> dict:
         page = await context.new_page()
 
         try:
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 1: Login — id.neogrid.com
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 1: Login
+            log.info("[1/8] Abrindo página de login...")
             await page.goto(
                 "https://id.neogrid.com/login/?lang=pt",
                 wait_until="networkidle",
                 timeout=30000
             )
 
-            # Preenche e-mail
+            log.info("[1/8] Preenchendo e-mail...")
             await page.fill("input#login-form_email", email)
             await page.click("button#login_btn_continue_pre_check")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 2: Senha — platform.neogrid.com (Keycloak)
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 2: Senha
+            log.info("[2/8] Aguardando campo de senha...")
             await page.wait_for_selector("input[type='password']", timeout=15000)
             await page.fill("input[type='password']", password)
             await page.click("button[type='submit']")
             await page.wait_for_load_state("networkidle", timeout=20000)
+            log.info("[2/8] Login realizado.")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 3: Portal — clicar em "EDI Logístico > Acessar"
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 3: Portal — clicar em EDI Logístico
+            log.info("[3/8] Aguardando botão EDI Logístico no portal...")
             await page.wait_for_selector(
                 "button#gtm-btn-access-EDI_Logístico",
                 timeout=15000
             )
             await page.click("button#gtm-btn-access-EDI_Logístico")
+            log.info("[3/8] Clicou em EDI Logístico.")
 
-            # Modal "Mudar organização" → clicar em Acessar
             await page.wait_for_selector(
                 "button#gtm-btn-modal-access-organization-confirm",
                 timeout=10000
             )
 
-            # Aguarda nova aba abrir (my.neogrid.com)
+            log.info("[3/8] Confirmando modal de organização...")
             async with context.expect_page() as new_page_info:
                 await page.click("button#gtm-btn-modal-access-organization-confirm")
 
             edi_page = await new_page_info.value
             await edi_page.wait_for_load_state("networkidle", timeout=20000)
+            log.info(f"[3/8] Nova aba aberta: {edi_page.url}")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 4: my.neogrid.com → "Acessar antigo EDI"
-            # ─────────────────────────────────────────────────────────────
-            # Clicar no menu lateral "Acessar antigo EDI"
-            await edi_page.wait_for_selector(
-                "text=Acessar antigo EDI",
-                timeout=15000
-            )
+            # PASSO 4: Acessar antigo EDI
+            log.info("[4/8] Aguardando link 'Acessar antigo EDI'...")
+            await edi_page.wait_for_selector("text=Acessar antigo EDI", timeout=15000)
 
-            # Nova aba será aberta com o antigo EDI
             async with context.expect_page() as old_edi_info:
                 await edi_page.click("text=Acessar antigo EDI")
 
             old_edi = await old_edi_info.value
             await old_edi.wait_for_load_state("networkidle", timeout=20000)
+            log.info(f"[4/8] EDI antigo carregado: {old_edi.url}")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 5: edi.neogrid.com — Caixa de Entrada
-            # URL: https://edi.neogrid.com/mercador/summaryFrame.jsp
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 5: Caixa de Entrada
+            log.info("[5/8] Clicando em Caixa de Entrada...")
             await old_edi.wait_for_selector(
                 'a[href="javascript:top.Navegacao.goInbox();"]',
                 timeout=15000
             )
             await old_edi.click('a[href="javascript:top.Navegacao.goInbox();"]')
             await old_edi.wait_for_load_state("networkidle", timeout=15000)
-            await asyncio.sleep(2)  # aguarda iframe Transacao carregar
+            await asyncio.sleep(2)
+            log.info("[5/8] Caixa de Entrada aberta.")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 6: Preencher data atual e pesquisar
-            # Tudo dentro do iframe "Transacao"
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 6: Filtrar por data
+            log.info("[6/8] Localizando iframe Transacao...")
             transacao_frame = old_edi.frame(name="Transacao")
             if not transacao_frame:
                 raise Exception("iframe Transacao não encontrado")
 
-            # Aguarda o filtro carregar
-            await transacao_frame.wait_for_selector(
-                "input#iniCreationDateFilter",
-                timeout=15000
-            )
+            await transacao_frame.wait_for_selector("input#iniCreationDateFilter", timeout=15000)
 
-            # Preenche Data Criação Inicial = hoje
+            log.info(f"[6/8] Preenchendo filtro de data: {today}")
             await transacao_frame.fill("input#iniCreationDateFilter", today)
             await transacao_frame.press("input#iniCreationDateFilter", "Tab")
-
-            # Preenche Data Criação Final = hoje
             await transacao_frame.fill("input#endCreationDateFilter", today)
             await transacao_frame.press("input#endCreationDateFilter", "Tab")
 
-            # Clica em Pesquisar
             await transacao_frame.click('a[onclick="adjustDocumentTypeFilter()"]')
             await old_edi.wait_for_load_state("networkidle", timeout=20000)
             await asyncio.sleep(2)
+            log.info("[6/8] Pesquisa realizada.")
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 7: Identificar TXTs não lidos e baixar
-            # Coluna índice 6 = "Leitura": valor "Lido" ou "Não Lido"
-            # ─────────────────────────────────────────────────────────────
-
-            # Re-obter o frame após a pesquisa
+            # PASSO 7: Identificar não lidos
+            log.info("[7/8] Varrendo tabela de resultados...")
             transacao_frame = old_edi.frame(name="Transacao")
-
             await transacao_frame.wait_for_selector("table tr td", timeout=15000)
 
-            # Coletar todas as linhas da tabela de resultados
             rows = await transacao_frame.query_selector_all("table tr")
+            log.info(f"[7/8] Total de linhas encontradas: {len(rows)}")
 
             unread_save_links = []
-
             for row in rows:
                 cells = await row.query_selector_all("td")
                 if len(cells) < 7:
-                    continue  # pula header e linhas vazias
+                    continue
 
-                # Coluna índice 6 = Leitura
-                leitura_cell = cells[6]
-                leitura_text = (await leitura_cell.inner_text()).strip()
-
-                # Considera "não lido" se NÃO contiver a palavra "Lido"
+                leitura_text = (await cells[6].inner_text()).strip()
                 if "Lido" not in leitura_text:
-                    # Busca o link doSave nessa linha
                     save_links = await row.query_selector_all("a[onclick^='doSave(']")
                     for link in save_links:
                         onclick = await link.get_attribute("onclick")
-                        unread_save_links.append({
-                            "link": link,
-                            "onclick": onclick
-                        })
+                        unread_save_links.append({"link": link, "onclick": onclick})
+                        log.info(f"[7/8] Não lido encontrado: {onclick}")
+
+            log.info(f"[7/8] Total não lidos: {len(unread_save_links)}")
 
             if not unread_save_links:
+                log.info("Nenhum documento não lido. Encerrando.")
                 return {
                     "success": True,
                     "date": today,
@@ -174,11 +155,11 @@ async def run_rpa(email: str, password: str) -> dict:
                     "errors": [],
                 }
 
-            # ─────────────────────────────────────────────────────────────
-            # PASSO 8: Baixar cada TXT não lido
-            # ─────────────────────────────────────────────────────────────
+            # PASSO 8: Baixar cada arquivo
+            log.info("[8/8] Iniciando downloads...")
             for item in unread_save_links:
                 try:
+                    log.info(f"[8/8] Baixando: {item['onclick']}")
                     async with old_edi.expect_download(timeout=20000) as dl_info:
                         await item["link"].click()
 
@@ -200,19 +181,17 @@ async def run_rpa(email: str, password: str) -> dict:
                     })
 
                     os.remove(filepath)
+                    log.info(f"[8/8] Download concluído: {filename} ({len(content)} bytes)")
                     await asyncio.sleep(0.5)
 
                 except PlaywrightTimeout:
-                    errors.append({
-                        "error": "Timeout ao baixar",
-                        "onclick": item.get("onclick")
-                    })
+                    log.error(f"[8/8] Timeout ao baixar: {item.get('onclick')}")
+                    errors.append({"error": "Timeout ao baixar", "onclick": item.get("onclick")})
                 except Exception as e:
-                    errors.append({
-                        "error": str(e),
-                        "onclick": item.get("onclick")
-                    })
+                    log.error(f"[8/8] Erro ao baixar {item.get('onclick')}: {e}")
+                    errors.append({"error": str(e), "onclick": item.get("onclick")})
 
+            log.info(f"=== RPA concluído: {len(downloaded_files)} arquivo(s) baixado(s), {len(errors)} erro(s) ===")
             return {
                 "success": True,
                 "date": today,
@@ -222,6 +201,7 @@ async def run_rpa(email: str, password: str) -> dict:
             }
 
         except Exception as e:
+            log.exception(f"Erro fatal no RPA: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -231,3 +211,4 @@ async def run_rpa(email: str, password: str) -> dict:
             }
         finally:
             await browser.close()
+            log.info("Browser encerrado.")
