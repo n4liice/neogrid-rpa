@@ -88,21 +88,14 @@ async def run_rpa(email: str, password: str) -> dict:
             log.info(f"[3/8] Nova aba aberta: {edi_page.url}")
 
             # PASSO 4: Acessar antigo EDI
-            log.info("[4/8] Aguardando link 'Acessar antigo EDI'...")
-            await edi_page.wait_for_selector("text=Acessar antigo EDI", timeout=15000)
-
-            # Remove overlay do tutorial react-joyride se estiver bloqueando
-            await edi_page.evaluate("""
-                const portal = document.getElementById('react-joyride-portal');
-                if (portal) portal.remove();
-                document.querySelectorAll('[data-test-id="overlay"]').forEach(el => el.remove());
-            """)
-
-            async with context.expect_page() as old_edi_info:
-                await edi_page.click("text=Acessar antigo EDI")
-
-            old_edi = await old_edi_info.value
-            await old_edi.wait_for_load_state("networkidle", timeout=20000)
+            # Navega direto para o EDI antigo na aba já autenticada
+            log.info("[4/8] Navegando direto para edi.neogrid.com...")
+            old_edi = edi_page
+            await old_edi.goto(
+                "https://edi.neogrid.com/mercador/summaryFrame.jsp",
+                wait_until="networkidle",
+                timeout=30000,
+            )
             log.info(f"[4/8] EDI antigo carregado: {old_edi.url}")
 
             # PASSO 5: Caixa de Entrada
