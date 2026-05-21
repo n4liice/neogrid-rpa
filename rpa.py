@@ -71,6 +71,14 @@ async def run_rpa(email: str, password: str) -> dict:
                 timeout=10000
             )
 
+            # Remove Cookiebot se estiver bloqueando o clique
+            await page.evaluate("""
+                const el = document.getElementById('CybotCookiebotDialog');
+                if (el) el.remove();
+                const wrap = document.getElementById('CybotCookiebotDialogBodyUnderlay');
+                if (wrap) wrap.remove();
+            """)
+
             log.info("[3/8] Confirmando modal de organização...")
             async with context.expect_page() as new_page_info:
                 await page.click("button#gtm-btn-modal-access-organization-confirm")
