@@ -145,23 +145,19 @@ async def run_rpa(email: str, password: str) -> dict:
             rows = await transacao_frame.query_selector_all("table tr")
             log.info(f"[7/8] Total de linhas encontradas: {len(rows)}")
 
-            unread_save_links = []
-            for row in rows:
+            unread_indices = []
+            for i, row in enumerate(rows):
                 cells = await row.query_selector_all("td")
                 if len(cells) < 7:
                     continue
-
                 leitura_text = (await cells[6].inner_text()).strip()
                 if "Lido" not in leitura_text:
-                    save_links = await row.query_selector_all("a[onclick^='doSave(']")
-                    for link in save_links:
-                        onclick = await link.get_attribute("onclick")
-                        unread_save_links.append({"link": link, "onclick": onclick})
-                        log.info(f"[7/8] Não lido encontrado: {onclick}")
+                    unread_indices.append(i)
+                    log.info(f"[7/8] Não lido encontrado na linha {i}")
 
-            log.info(f"[7/8] Total não lidos: {len(unread_save_links)}")
+            log.info(f"[7/8] Total não lidos: {len(unread_indices)}")
 
-            if not unread_save_links:
+            if not unread_indices:
                 log.info("Nenhum documento não lido. Encerrando.")
                 return {
                     "success": True,
@@ -172,26 +168,31 @@ async def run_rpa(email: str, password: str) -> dict:
                     "errors": [],
                 }
 
-            # PASSO 8: Baixar cada arquivo
+            # PASSO 8: Baixar cada arquivo clicando no botão de download da linha
             log.info("[8/8] Iniciando downloads...")
-            for item in unread_save_links:
+            for row_index in unread_indices:
                 try:
-                    onclick_val = item["onclick"]
-                    log.info(f"[8/8] Baixando: {onclick_val}")
+                    log.info(f"[8/8] Baixando linha {row_index}...")
 
-                    # Re-busca o elemento no frame para evitar handle stale
+                    # Re-busca as linhas para evitar handles stale
                     transacao_frame = old_edi.frame(name="Transacao")
-                    link = await transacao_frame.query_selector(f"a[onclick='{onclick_val}']")
-                    if not link:
-                        raise Exception(f"Link não encontrado no frame: {onclick_val}")
+                    rows_fresh = await transacao_frame.query_selector_all("table tr")
+                    row = rows_fresh[row_index]
+
+                    btn = await row.query_selector("i[id^='btsaveas']")
+                    if not btn:
+                        raise Exception(f"Botão de download não encontrado na linha {row_index}")
+
+                    btn_id = await btn.get_attribute("id")
+                    log.info(f"[8/8] Clicando em #{btn_id}")
 
                     await dismiss_overlays(old_edi)
 
                     async with old_edi.expect_download(timeout=30000) as dl_info:
-                        await link.click(force=True)
+                        await btn.click(force=True)
 
                     download = await dl_info.value
-                    filename = download.suggested_filename or f"doc_{item['onclick']}.txt"
+                    filename = download.suggested_filename or f"doc_linha{row_index}.txt"
                     filepath = DOWNLOAD_DIR / filename
 
                     await download.save_as(str(filepath))
@@ -204,7 +205,7 @@ async def run_rpa(email: str, password: str) -> dict:
                         "content_base64": base64.b64encode(content).decode("utf-8"),
                         "size_bytes": len(content),
                         "downloaded_at": datetime.now().isoformat(),
-                        "onclick": item["onclick"],
+                        "btn_id": btn_id,
                     })
 
                     os.remove(filepath)
@@ -212,11 +213,11 @@ async def run_rpa(email: str, password: str) -> dict:
                     await asyncio.sleep(0.5)
 
                 except PlaywrightTimeout:
-                    log.error(f"[8/8] Timeout ao baixar: {item.get('onclick')}")
-                    errors.append({"error": "Timeout ao baixar", "onclick": item.get("onclick")})
+                    log.error(f"[8/8] Timeout ao baixar linha {row_index}")
+                    errors.append({"error": "Timeout ao baixar", "row_index": row_index})
                 except Exception as e:
-                    log.error(f"[8/8] Erro ao baixar {item.get('onclick')}: {e}")
-                    errors.append({"error": str(e), "onclick": item.get("onclick")})
+                    log.error(f"[8/8] Erro ao baixar linha {row_index}: {e}")
+                    errors.append({"error": str(e), "row_index": row_index})
 
             log.info(f"=== RPA concluído: {len(downloaded_files)} arquivo(s) baixado(s), {len(errors)} erro(s) ===")
             return {
