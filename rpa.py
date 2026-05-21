@@ -4,12 +4,31 @@ import os
 import base64
 from datetime import datetime
 from pathlib import Path
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeout
 
 log = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = Path("/app/downloads")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+_DISMISS_JS = """
+    [
+        '#CybotCookiebotDialog',
+        '#CybotCookiebotDialogBodyUnderlay',
+        '#react-joyride-portal',
+        '#walk-wrapper',
+        '[data-test-id="overlay"]',
+    ].forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => el.remove());
+    });
+"""
+
+
+async def dismiss_overlays(p: Page):
+    try:
+        await p.evaluate(_DISMISS_JS)
+    except Exception:
+        pass
 
 
 async def run_rpa(email: str, password: str) -> dict:
@@ -59,10 +78,7 @@ async def run_rpa(email: str, password: str) -> dict:
 
             # PASSO 3: Portal — clicar em EDI Logístico
             log.info("[3/8] Aguardando botão EDI Logístico no portal...")
-            await page.wait_for_selector(
-                "button#gtm-btn-access-EDI_Logístico",
-                timeout=15000
-            )
+            await page.wait_for_selector("button#gtm-btn-access-EDI_Logístico", timeout=15000)
             await page.click("button#gtm-btn-access-EDI_Logístico")
             log.info("[3/8] Clicou em EDI Logístico.")
 
@@ -70,14 +86,7 @@ async def run_rpa(email: str, password: str) -> dict:
                 "button#gtm-btn-modal-access-organization-confirm",
                 timeout=10000
             )
-
-            # Remove Cookiebot se estiver bloqueando o clique
-            await page.evaluate("""
-                const el = document.getElementById('CybotCookiebotDialog');
-                if (el) el.remove();
-                const wrap = document.getElementById('CybotCookiebotDialogBodyUnderlay');
-                if (wrap) wrap.remove();
-            """)
+            await dismiss_overlays(page)
 
             log.info("[3/8] Confirmando modal de organização...")
             async with context.expect_page() as new_page_info:
@@ -87,8 +96,7 @@ async def run_rpa(email: str, password: str) -> dict:
             await edi_page.wait_for_load_state("networkidle", timeout=20000)
             log.info(f"[3/8] Nova aba aberta: {edi_page.url}")
 
-            # PASSO 4: Acessar antigo EDI
-            # Navega direto para o EDI antigo na aba já autenticada
+            # PASSO 4: Navegar direto para o EDI antigo
             log.info("[4/8] Navegando direto para edi.neogrid.com...")
             old_edi = edi_page
             await old_edi.goto(
@@ -104,6 +112,7 @@ async def run_rpa(email: str, password: str) -> dict:
                 'a[href="javascript:top.Navegacao.goInbox();"]',
                 timeout=15000
             )
+            await dismiss_overlays(old_edi)
             await old_edi.click('a[href="javascript:top.Navegacao.goInbox();"]')
             await old_edi.wait_for_load_state("networkidle", timeout=15000)
             await asyncio.sleep(2)
