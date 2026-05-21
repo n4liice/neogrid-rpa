@@ -176,9 +176,19 @@ async def run_rpa(email: str, password: str) -> dict:
             log.info("[8/8] Iniciando downloads...")
             for item in unread_save_links:
                 try:
-                    log.info(f"[8/8] Baixando: {item['onclick']}")
-                    async with old_edi.expect_download(timeout=20000) as dl_info:
-                        await item["link"].click()
+                    onclick_val = item["onclick"]
+                    log.info(f"[8/8] Baixando: {onclick_val}")
+
+                    # Re-busca o elemento no frame para evitar handle stale
+                    transacao_frame = old_edi.frame(name="Transacao")
+                    link = await transacao_frame.query_selector(f"a[onclick='{onclick_val}']")
+                    if not link:
+                        raise Exception(f"Link não encontrado no frame: {onclick_val}")
+
+                    await dismiss_overlays(old_edi)
+
+                    async with old_edi.expect_download(timeout=30000) as dl_info:
+                        await link.click(force=True)
 
                     download = await dl_info.value
                     filename = download.suggested_filename or f"doc_{item['onclick']}.txt"
