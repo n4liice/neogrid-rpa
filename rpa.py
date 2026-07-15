@@ -74,6 +74,19 @@ async def run_rpa(email: str, password: str) -> dict:
             await page.fill("input[type='password']", password)
             await page.click("button[type='submit']")
             await page.wait_for_load_state("networkidle", timeout=20000)
+
+            # Verificação explícita: a Neogrid recarrega a própria tela de login
+            # com uma mensagem de erro em vez de retornar HTTP de falha, então sem
+            # este check o passo 3 apenas estoura timeout esperando um botão que
+            # nunca vai existir.
+            if await page.get_by_text("E-mail ou senha inválidos", exact=False).count() > 0:
+                raise Exception("Login falhou: e-mail ou senha inválidos.")
+            if "login-actions/authenticate" in page.url:
+                raise Exception(
+                    "Login falhou: ainda na tela de autenticação após o envio "
+                    "(possível captcha, MFA ou instabilidade da Neogrid)."
+                )
+
             log.info("[2/8] Login realizado.")
 
             # PASSO 3: Portal — clicar em EDI Logístico
