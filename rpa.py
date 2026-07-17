@@ -153,7 +153,10 @@ async def run_rpa(email: str, password: str) -> dict:
             # PASSO 7: Identificar não lidos
             log.info("[7/8] Varrendo tabela de resultados...")
             transacao_frame = old_edi.frame(name="Transacao")
-            await transacao_frame.wait_for_selector("table tr td", timeout=15000)
+            # ":visible" evita resolver para o <td class="required"> escondido do
+            # template de detalhes do arquivo, que sempre existe no DOM mas nunca
+            # fica visível, travando a espera mesmo com a tabela real carregada.
+            await transacao_frame.wait_for_selector("table tr td:visible", timeout=15000)
 
             rows = await transacao_frame.query_selector_all("table tr")
             log.info(f"[7/8] Total de linhas encontradas: {len(rows)}")
