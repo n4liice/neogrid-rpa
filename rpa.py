@@ -106,7 +106,11 @@ async def run_rpa(email: str, password: str) -> dict:
                 await page.click("button#gtm-btn-modal-access-organization-confirm")
 
             edi_page = await new_page_info.value
-            await edi_page.wait_for_load_state("networkidle", timeout=20000)
+            # "load" em vez de "networkidle": essa aba é abandonada no passo 4
+            # (navega direto pra edi.neogrid.com), e "networkidle" nunca é
+            # atingido de forma confiável aqui, provavelmente por algum widget
+            # com conexão persistente na página nova do EDI.
+            await edi_page.wait_for_load_state("load", timeout=20000)
             log.info(f"[3/8] Nova aba aberta: {edi_page.url}")
 
             # PASSO 4: Navegar direto para o EDI antigo
@@ -156,7 +160,9 @@ async def run_rpa(email: str, password: str) -> dict:
             # ":visible" evita resolver para o <td class="required"> escondido do
             # template de detalhes do arquivo, que sempre existe no DOM mas nunca
             # fica visível, travando a espera mesmo com a tabela real carregada.
-            await transacao_frame.wait_for_selector("table tr td:visible", timeout=15000)
+            # Timeout maior porque a busca AJAX desse portal legado às vezes
+            # demora bem mais que 15s pra popular a tabela após o clique no filtro.
+            await transacao_frame.wait_for_selector("table tr td:visible", timeout=45000)
 
             rows = await transacao_frame.query_selector_all("table tr")
             log.info(f"[7/8] Total de linhas encontradas: {len(rows)}")
