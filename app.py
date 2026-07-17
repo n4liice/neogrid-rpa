@@ -29,6 +29,8 @@ NEOGRID_EMAIL = os.environ["NEOGRID_EMAIL"]
 NEOGRID_PASSWORD = os.environ["NEOGRID_PASSWORD"]
 API_TOKEN = os.environ.get("API_TOKEN", "")
 
+_run_lock = asyncio.Lock()
+
 
 def _check_token(credentials: HTTPAuthorizationCredentials | None):
     if not API_TOKEN:
@@ -55,10 +57,20 @@ async def run(credentials: HTTPAuthorizationCredentials | None = Security(securi
     """
     _check_token(credentials)
 
-    try:
-        result = await run_rpa(NEOGRID_EMAIL, NEOGRID_PASSWORD)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    # Evita duas execuções simultâneas fazendo login na mesma conta Neogrid —
+    # a Neogrid invalida/embaralha sessões concorrentes, o que causa falhas
+    # inconsistentes em passos aleatórios do fluxo.
+    if _run_lock.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="RPA já está em execução. Tente novamente em alguns instantes.",
+        )
+
+    async with _run_lock:
+        try:
+            result = await run_rpa(NEOGRID_EMAIL, NEOGRID_PASSWORD)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Erro desconhecido no RPA."))

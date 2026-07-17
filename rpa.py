@@ -243,6 +243,14 @@ async def run_rpa(email: str, password: str) -> dict:
 
         except Exception as e:
             log.exception(f"Erro fatal no RPA: {e}")
+            try:
+                failing_page = context.pages[-1]
+                debug_url = failing_page.url
+                debug_text = (await failing_page.inner_text("body"))[:500]
+                log.error(f"[DEBUG] URL no momento da falha: {debug_url}")
+                log.error(f"[DEBUG] Texto visível na tela: {debug_text!r}")
+            except Exception:
+                pass
             return {
                 "success": False,
                 "error": str(e),
