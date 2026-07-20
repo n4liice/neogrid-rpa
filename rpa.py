@@ -131,7 +131,13 @@ async def run_rpa(email: str, password: str) -> dict:
             )
             await dismiss_overlays(old_edi)
             await old_edi.click('a[href="javascript:top.Navegacao.goInbox();"]')
-            await old_edi.wait_for_load_state("networkidle", timeout=15000)
+            # Não-fatal: esse portal legado tem alguma atividade de rede
+            # persistente que nunca deixa "networkidle" disparar de forma
+            # confiável. O gate real é o wait_for_selector do passo 6 logo abaixo.
+            try:
+                await old_edi.wait_for_load_state("networkidle", timeout=15000)
+            except PlaywrightTimeout:
+                log.info("[5/8] networkidle não atingido, seguindo mesmo assim.")
             await asyncio.sleep(2)
             log.info("[5/8] Caixa de Entrada aberta.")
 
@@ -150,7 +156,12 @@ async def run_rpa(email: str, password: str) -> dict:
             await transacao_frame.press("input#endCreationDateFilter", "Tab")
 
             await transacao_frame.click('a[onclick="adjustDocumentTypeFilter()"]')
-            await old_edi.wait_for_load_state("networkidle", timeout=20000)
+            # Não-fatal pelo mesmo motivo do passo 5 — o gate real é a espera
+            # (também não-fatal) pela tabela de resultados no passo 7.
+            try:
+                await old_edi.wait_for_load_state("networkidle", timeout=20000)
+            except PlaywrightTimeout:
+                log.info("[6/8] networkidle não atingido, seguindo mesmo assim.")
             await asyncio.sleep(2)
             log.info("[6/8] Pesquisa realizada.")
 
@@ -160,9 +171,13 @@ async def run_rpa(email: str, password: str) -> dict:
             # ":visible" evita resolver para o <td class="required"> escondido do
             # template de detalhes do arquivo, que sempre existe no DOM mas nunca
             # fica visível, travando a espera mesmo com a tabela real carregada.
-            # Timeout maior porque a busca AJAX desse portal legado às vezes
-            # demora bem mais que 15s pra popular a tabela após o clique no filtro.
-            await transacao_frame.wait_for_selector("table tr td:visible", timeout=45000)
+            # Não-fatal: se não houver nenhum documento no período, a tabela
+            # pode não ter nenhuma célula visível — isso não é erro, é resultado
+            # legítimo, e cai no fluxo de "nenhum não lido" mais abaixo.
+            try:
+                await transacao_frame.wait_for_selector("table tr td:visible", timeout=45000)
+            except PlaywrightTimeout:
+                log.info("[7/8] Nenhuma célula visível na tabela — possivelmente sem documentos no período.")
 
             rows = await transacao_frame.query_selector_all("table tr")
             log.info(f"[7/8] Total de linhas encontradas: {len(rows)}")
